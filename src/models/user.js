@@ -11,8 +11,9 @@ const userSchema = new mongoose.Schema({
     email:String,
     password:String,
     age:Number,
-    address: nestedSchema
+    address: nestedSchema,
 })
 
 const userModel= mongoose.model('Users',userSchema)
-module.exports = userModel
+const userTypes = mongoose.Schema.Types
+module.exports = {userModel,userTypes}
