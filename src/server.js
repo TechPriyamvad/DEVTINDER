@@ -1,5 +1,6 @@
 // creating a basic web server using express
 const express = require('express')
+const validator = require('validator')
 const connectDb = require('./configs/db')
 const {userModel,userTypes} = require('./models/user')
 const { USER1 } = require('./constants/user')
@@ -13,23 +14,41 @@ app.use(express.json())
 app.post('/signup', async (req, res) => {
     try {
         const userJson = req.body
+        const {email,password} = userJson
+
+        // valid email check
+        if(!validator.isEmail(email)){
+            return res.status(400).json({message:"Invalid email format"})
+        }
+
+        // valid password check
+        if(!validator.isStrongPassword(password)){
+            return res.status(400).json({message:"Password must be at least 8 characters long and include uppercase letters, lowercase letters, numbers, and symbols"})
+        }
+
+        const checkUser = await userModel.findOne({email: email})
+        if(checkUser){
+            return res.status(400).json({message:"User with email " + email + " already exists"})
+        }
+
+        
         const user = new userModel(userJson)
-        await user.save()
+        await user.save({validateBeforeSave:true})
         res.status(201).json({ message: "User created successfully", user })
     } catch (error) {
-        res.status(500).json({ message: "Error creating user", error })
+        res.status(500).json({ message: "Error creating user", error:error.message, stack: error.stack })
     }
 })
 
 
 // update user age by email
-app.put('/userByEmail', async (req, res) => {
+app.patch('/userByEmail', async (req, res) => {
     try {
-        const {email,city,age} = req.body
+        const {email,city,age,name} = req.body
         const updatedUser = await userModel.findOneAndUpdate(
             { email: email },
-            { $set: { "age": age, "address.city": city } },
-            { returnDocument: 'after'}
+            { $set: { "age": age, "address.city": city, "name": name } },
+            { returnDocument: 'after', runValidators: true }
         )
         if (!updatedUser) {
             return res.status(404).json({ message: "User with email " + email + " not found" })
