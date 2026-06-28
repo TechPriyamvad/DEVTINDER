@@ -1,17 +1,15 @@
 // creating a basic web server using express
 const express = require("express");
-const validator = require("validator");
-const bcrypt = require("bcrypt");
 const cookieParser = require("cookie-parser");
-const jwt = require("jsonwebtoken");
 const connectDb = require("./configs/db");
-const { userModel, userTypes } = require("./models/user");
-const { USER1 } = require("./constants/user");
-const authMiddleware = require('./middlewares/auth')
-const { accessTokenSecret, refreshTokenSecret } = require("./constants/auth");
+const userRouter = require("./routes/user");
+const authRouter = require("./routes/auth");
+const profileRouter = require("./routes/profile");
+const connectionRequestRouter = require("./routes/connectionRequest");
 
 const app = express();
 app.use(cookieParser());
+
 
 const PORT = 3000;
 const saltRounds = 12;
@@ -19,240 +17,10 @@ const saltRounds = 12;
 
 // Middleware to parse JSON bodies
 app.use(express.json());
-
-// Define routes here (before starting server)
-app.post("/signup", async (req, res) => {
-  try {
-    const userJson = req.body;
-    const { email, password } = userJson;
-    // valid email check
-    if (!validator.isEmail(email)) {
-      return res.status(400).json({ message: "Invalid email format" });
-    }
-
-    // valid password check
-    if (!validator.isStrongPassword(password)) {
-      return res.status(400).json({
-        message:
-          "Password must be at least 8 characters long and include uppercase letters, lowercase letters, numbers, and symbols",
-      });
-    }
-
-    const checkUser = await userModel.findOne({ email: email });
-    if (checkUser) {
-      return res
-        .status(400)
-        .json({ message: "User with email " + email + " already exists" });
-    }
-
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
-    userJson.password = hashedPassword;
-    const user = new userModel(userJson);
-    await user.save({ validateBeforeSave: true });
-    res.status(201).json({ message: "User created successfully", user });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error creating user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// update user age by email
-app.patch("/userByEmail", async (req, res) => {
-  try {
-    const { email, city, age, name } = req.body;
-    const updatedUser = await userModel.findOneAndUpdate(
-      { email: email },
-      { $set: { age: age, "address.city": city, name: name } },
-      { returnDocument: "after", runValidators: true },
-    );
-    if (!updatedUser) {
-      return res
-        .status(404)
-        .json({ message: "User with email " + email + " not found" });
-    }
-    res
-      .status(200)
-      .json({ message: "User updated successfully", user: updatedUser });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error updating user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// find user by email
-app.get("/userByEmail", async (req, res) => {
-  try {
-    const { email } = req.body;
-    const user = await userModel.findOne();
-    if (!user) {
-      return res
-        .status(404)
-        .json({ message: "User with email " + email + " not found" });
-    }
-    res.status(200).json({
-      message: "User with email " + email + " fetched successfully",
-      user,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error fetching user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// find all users
-app.get("/feed", async (req, res) => {
-  try {
-    const users = await userModel.find();
-    if (users.length === 0) {
-      return res.status(404).json({ message: "No users found" });
-    }
-    res.status(200).json({ message: "Users fetched successfully", users });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error fetching user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// find user by Id
-app.get("/userById/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const user = await userModel.findById(id);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ message: "User with ID " + id + " not found" });
-    }
-    res
-      .status(200)
-      .json({ message: "User with ID " + id + " fetched successfully", user });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error fetching user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// delete a user by mongodb object id
-app.delete("/userById/:id", async (req, res) => {
-  try {
-    const id = req.params.id;
-    const deletedUser = await userModel.findByIdAndDelete(id);
-    if (!deletedUser) {
-      return res
-        .status(404)
-        .json({ message: "User with ID " + id + " not found" });
-    }
-    res.status(200).json({
-      message: "User with ID " + id + " deleted successfully",
-      user: deletedUser,
-    });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error deleting user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-// login api
-app.post("/login", async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    // check if email exists
-    const user = await userModel.findOne({ email: email });
-    if (!user) {
-      return res.cookie("accessToken", "").status(401).json({ message: "Invalid credentials" });
-    }
-
-    // compare hashed password with the password provided by user
-    const isPasswordValid = await user.validatePassword(password)
-    if (!isPasswordValid) {
-      return res.cookie("accessToken", "").status(401).json({ message: "Invalid credentials" });
-    }
-
-    const accessToken = await user.getJWT(accessTokenSecret, '2m')
-    const refreshToken = await user.getJWT(refreshTokenSecret, '1h')
-
-    user.refreshToken = refreshToken;
-    await user.save({ validateBeforeSave: false });
-
-    res
-      .cookie("accessToken", `Bearer ${accessToken}`)
-      .cookie("refreshToken", `Bearer ${refreshToken}`)  
-      .status(200)
-      .json({ message: "User logged in successfully" });
-  } catch (error) {
-    res.status(500).json({
-      message: "Error logging user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-app.get("/profile", authMiddleware, (req, res) => {
-  try {
-    res.send("This is the profile page of user with id:" +req.userId);
-  } catch (error) {
-    res.status(500).json({
-      message: "Error logging user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-app.post("/connectionRequest", authMiddleware, (req, res) => {
-  try {
-    res.send("Send a connection request to user with id:" + req.userId);
-  } catch (error) {
-    res.status(500).json({
-      message: "Error logging user",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-});
-
-app.post("/refresh-token",async(req,res)=>{
-  try {
-    const {refreshToken} = req.body;
-    const decoded = jwt.verify(refreshToken, refreshTokenSecret);
-    const user = await userModel.findById(decoded.userId);
-
-    if(!user || user.refreshToken !== refreshToken){
-      return res.status(401).json({message:"Invalid refresh token"})
-    }
-
-    const newAccessToken = await user.getJWT(accessTokenSecret, '2m');
-
-    res.cookie("accessToken", `Bearer ${newAccessToken}`).status(200).json({message:"New access token generated successfully"})
-
-  } catch (error) {
-    res.status(500).json({
-      message: "Error generating new access token",
-      error: error.message,
-      stack: error.stack,
-    });
-  }
-})
+app.use("/user", userRouter);
+app.use("/auth", authRouter);
+app.use("/profile", profileRouter);
+app.use("/connectionRequest", connectionRequestRouter);
 
 // starting the server
 connectDb()
